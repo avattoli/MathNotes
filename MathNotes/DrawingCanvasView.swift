@@ -13,18 +13,20 @@ struct DrawingCanvasView: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     @Binding var color: Color
     @Binding var width: CGFloat
+    var isEraser: Bool
+    var eraserWidth: CGFloat
     
     func makeUIView(context: Context) -> PKCanvasView {
-        // Configure drawing tool
-        canvasView.tool = PKInkingTool(.pen, color: UIColor(color), width: width)
-        
         // Set drawing and styling
         canvasView.drawing = drawing
         canvasView.backgroundColor = .clear
         canvasView.isOpaque = false
         
-        // Set drawing policy to pencil only (no finger drawing)
-        canvasView.drawingPolicy = .anyInput // Changed to allow finger drawing for testing
+        // Set drawing policy to allow any input
+        canvasView.drawingPolicy = .anyInput
+        
+        // Set the appropriate tool
+        updateTool(canvasView)
         
         // Set delegate for drawing changes
         canvasView.delegate = context.coordinator
@@ -33,12 +35,20 @@ struct DrawingCanvasView: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: PKCanvasView, context: Context) {
-        // Update tool with current color and width
-        uiView.tool = PKInkingTool(.pen, color: UIColor(color), width: width)
+        // Update tool based on current settings
+        updateTool(uiView)
         
         // Update drawing if changed externally
         if uiView.drawing != drawing {
             uiView.drawing = drawing
+        }
+    }
+    
+    private func updateTool(_ canvasView: PKCanvasView) {
+        if isEraser {
+            canvasView.tool = PKEraserTool(.vector, width: eraserWidth)
+        } else {
+            canvasView.tool = PKInkingTool(.pen, color: UIColor(color), width: width)
         }
     }
     
