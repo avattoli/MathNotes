@@ -78,6 +78,7 @@
 				6223BD9D2DCEAA560014F43C /* MathNotes */,
 				6223BDAB2DCEAA570014F43C /* MathNotesTests */,
 				6223BDB52DCEAA570014F43C /* MathNotesUITests */,
+				6223BDF82DD2DD3F0014F43C /* Frameworks */,
 				6223BD9C2DCEAA560014F43C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +91,13 @@
 				6223BDB22DCEAA570014F43C /* MathNotesUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		6223BDF82DD2DD3F0014F43C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -195,6 +203,9 @@
 			);
 			mainGroup = 6223BD922DCEAA560014F43C;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				6223BDF72DD2DC190014F43C /* XCRemoteSwiftPackageReference "iosMath" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6223BD9C2DCEAA560014F43C /* Products */;
 			projectDirPath = "";
@@ -552,6 +563,17 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		6223BDF72DD2DC190014F43C /* XCRemoteSwiftPackageReference "iosMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kostub/iosMath";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.5;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 	};
 	rootObject = 6223BD932DCEAA560014F43C /* Project object */;
 }

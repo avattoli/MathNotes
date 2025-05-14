@@ -8,6 +8,7 @@
 import SwiftUI
 import PencilKit
 import UIKit
+import WebKit
 
 struct FileEditorView: View {
     @ObservedObject var file: File
@@ -28,6 +29,9 @@ struct FileEditorView: View {
     @State private var showCropOverlay: Bool = false
     @State private var cropRect: CGRect = .zero
     @State private var isCropping: Bool = false
+    @State private var userQuestion: String = ""
+    @State private var chatGPTResponse: String = ""
+    @State private var isAskingChatGPT: Bool = false
     
     private let recognitionService = HandwritingRecognitionService()
     let pix2textURL = URL(string: "http://192.168.1.35:5050/recognize") //NEED TO FIX THIS WITH A PROPER SERVER!!
@@ -35,6 +39,16 @@ struct FileEditorView: View {
     let colors: [Color] = [.black, .red, .blue, .green, .purple, .orange]
     let brushSizes: [CGFloat] = [1, 2, 3, 5, 8, 13]
     let eraserSizes: [CGFloat] = [10, 20, 30, 50]
+
+    private var openAIAPIKey: String {
+        if let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+           let data = try? Data(contentsOf: url),
+           let dict = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
+           let key = dict["OPENAI_API_KEY"] as? String {
+            return key
+        }
+        return ""
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -201,29 +215,6 @@ struct FileEditorView: View {
                     .background(TrackScrollView(offset: $scrollOffset))
                 }
                 
-                // Recognition results overlay
-                if showRecognizedText {
-                    VStack {
-                        Text("Recognized Text:")
-                            .font(.headline)
-                        
-                        Text(recognizedText)
-                            .padding()
-                            .background(Color(UIColor.systemBackground))
-                            .cornerRadius(8)
-                            .shadow(radius: 2)
-                            .padding()
-                        
-                        Button("Dismiss") {
-                            showRecognizedText = false
-                        }
-                        .padding()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .background(Color.black.opacity(0.5))
-                    .edgesIgnoringSafeArea(.all)
-                    .transition(.opacity)
-                }
                 if isCropping {
                     CropOverlayView(isCropping: $isCropping, cropRect: $cropRect, onCrop: { rect in
                         cropRect = rect
@@ -231,6 +222,50 @@ struct FileEditorView: View {
                         cropAndRecognize(rect: rect)
                     })
                 }
+            }
+            // Show question/answer UI after recognition
+            if !recognizedText.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Ask a question about the recognized math...", text: $userQuestion)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding([.horizontal, .top])
+                    Button(action: {
+                        askChatGPT(latex: recognizedText, question: userQuestion)
+                    }) {
+                        if isAskingChatGPT {
+                            ProgressView()
+                        } else {
+                            Text("Ask ChatGPT")
+                        }
+                    }
+                    .disabled(userQuestion.isEmpty || isAskingChatGPT)
+                    .padding(.horizontal)
+                    if !chatGPTResponse.isEmpty {
+                        Text("ChatGPT Response:")
+                            .font(.headline)
+                            .padding(.horizontal)
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 8) {
+                                // Extract LaTeX and plain text
+                                let (plainText, latexPart) = extractTextAndLatex(from: chatGPTResponse)
+                                if !plainText.isEmpty {
+                                    Text(plainText)
+                                        .padding([.horizontal, .top])
+                                }
+                                if !latexPart.isEmpty {
+                                    MathWebView(latex: latexPart)
+                                        .frame(minHeight: 60, maxHeight: 300)
+                                        .padding([.horizontal, .bottom])
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 300)
+                    }
+                }
+                .background(Color(UIColor.systemBackground).opacity(0.95))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                .padding()
             }
         }
         .navigationTitle(file.name)
@@ -242,11 +277,6 @@ struct FileEditorView: View {
         }
         .sheet(isPresented: $showImagePicker, onDismiss: processInputImage) {
             ImagePicker(image: $inputImage)
-        }
-        .alert("Recognized LaTeX", isPresented: $showRecognizedText) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(recognizedText)
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase == .background || newPhase == .inactive {
@@ -445,6 +475,70 @@ struct FileEditorView: View {
         }
     }
 
+    // MARK: - ChatGPT API
+    func askChatGPT(latex: String, question: String) {
+        isAskingChatGPT = true
+        chatGPTResponse = ""
+        let apiKey = openAIAPIKey // Load from Secrets.plist
+        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let prompt = "Given the following LaTeX math: \n\n\(latex)\n\nQuestion: \(question)\n\nAnswer:"
+        let body: [String: Any] = [
+            "model": "gpt-3.5-turbo",
+            "messages": [
+                ["role": "system", "content": "You are a helpful math assistant."],
+                ["role": "user", "content": prompt]
+            ]
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            defer { DispatchQueue.main.async { isAskingChatGPT = false } }
+            if let error = error {
+                DispatchQueue.main.async {
+                    chatGPTResponse = "Error: \(error.localizedDescription)"
+                }
+                return
+            }
+            guard let data = data else {
+                DispatchQueue.main.async {
+                    chatGPTResponse = "No data received."
+                }
+                return
+            }
+            // Debug print for raw response
+            print("Raw response: \(String(data: data, encoding: .utf8) ?? "nil")")
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let choices = json["choices"] as? [[String: Any]],
+               let message = choices.first?["message"] as? [String: Any],
+               let content = message["content"] as? String {
+                DispatchQueue.main.async {
+                    chatGPTResponse = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    chatGPTResponse = "Failed to parse response."
+                }
+            }
+        }.resume()
+    }
+
+    // Helper to extract LaTeX and plain text from ChatGPT response
+    func extractTextAndLatex(from response: String) -> (String, String) {
+      // Match either $$…$$ or $…$
+      let pattern = #"(\$\$[\s\S]+?\$\$|\$[^$\n]+\$)"#
+      if let range = response.range(of: pattern, options: .regularExpression) {
+        let mathWithDelims = String(response[range])
+        let plain = response.replacingCharacters(in: range, with: "")
+        return (plain.trimmingCharacters(in: .whitespacesAndNewlines),
+                mathWithDelims)
+      } else {
+        return (response, "")
+      }
+    }
+
 
 }
 
@@ -547,5 +641,46 @@ struct CropOverlayView: View {
                 }
             }
         }
+    }
+}
+
+// Add the MathWebView wrapper
+struct MathWebView: UIViewRepresentable {
+    let latex: String
+    func makeUIView(context: Context) -> WKWebView {
+        let webView = WKWebView()
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.isScrollEnabled = false
+        return webView
+    }
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        let html = """
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <script>
+            window.MathJax = {
+              tex: {
+                inlineMath: [['$','$'], ['\\\\(','\\\\)']],
+                displayMath: [['$$','$$'], ['\\\\[','\\\\]']]
+              }
+            };
+          </script>
+          <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+          <style>
+            body { background: transparent; color: #222; font-size: 20px; margin: 0; padding: 0; }
+          </style>
+        </head>
+        <body>
+          <div id="math">\(latex)</div>
+          <script>
+            window.onload = () => MathJax.typesetPromise();
+          </script>
+        </body>
+        </html>
+        """
+        webView.loadHTMLString(html, baseURL: nil)
+
     }
 }
